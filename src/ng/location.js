@@ -609,7 +609,7 @@ function $LocationProvider(){
         baseHref = $browser.baseHref(), // if base[href] is undefined, it defaults to ''
         initialUrl = $browser.url(),
         appBase;
-
+    if (IgnoreLocation){
     if (html5Mode) {
       appBase = serverBase(initialUrl) + (baseHref || '/');
       LocationMode = $sniffer.history ? LocationHtml5Url : LocationHashbangInHtml5Url;
@@ -705,8 +705,9 @@ function $LocationProvider(){
     });
 
     return $location;
+    }
 
-    function afterLocationChange(oldUrl) {
+    this.afterLocationChange = function(oldUrl) {
       $rootScope.$broadcast('$locationChangeSuccess', $location.absUrl(), oldUrl);
     }
 }];
