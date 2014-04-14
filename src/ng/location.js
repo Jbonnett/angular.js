@@ -30,7 +30,6 @@ function parseAbsoluteUrl(absoluteUrl, locationObj, appBase) {
   locationObj.$$port = int(parsedUrl.port) || DEFAULT_PORTS[parsedUrl.protocol] || null;
 }
 
-
 function parseAppUrl(relativeUrl, locationObj, appBase) {
   var prefixed = (relativeUrl.charAt(0) !== '/');
   if (prefixed) {
@@ -541,7 +540,8 @@ function locationGetterSetter(property, preprocess) {
  */
 function $LocationProvider(){
   var hashPrefix = '',
-      html5Mode = false;
+      html5Mode = false,
+      Off = false;
 
   /**
    * @ngdoc property
@@ -572,6 +572,15 @@ function $LocationProvider(){
       return this;
     } else {
       return html5Mode;
+    }
+  };
+
+  this.Off = function(off) {
+    if (isDefined(off)) {
+      Off = off;
+      return this;
+    } else {
+      return Off;
     }
   };
 
@@ -609,7 +618,6 @@ function $LocationProvider(){
         baseHref = $browser.baseHref(), // if base[href] is undefined, it defaults to ''
         initialUrl = $browser.url(),
         appBase;
-    if (IgnoreLocation){
     if (html5Mode) {
       appBase = serverBase(initialUrl) + (baseHref || '/');
       LocationMode = $sniffer.history ? LocationHtml5Url : LocationHashbangInHtml5Url;
@@ -619,96 +627,96 @@ function $LocationProvider(){
     }
     $location = new LocationMode(appBase, '#' + hashPrefix);
     $location.$$parse($location.$$rewrite(initialUrl));
+    if (!Off){
+        $rootElement.on('click', function(event) {
+          // TODO(vojta): rewrite link when opening in new tab/window (in legacy browser)
+          // currently we open nice url link and redirect then
 
-    $rootElement.on('click', function(event) {
-      // TODO(vojta): rewrite link when opening in new tab/window (in legacy browser)
-      // currently we open nice url link and redirect then
+          if (event.ctrlKey || event.metaKey || event.which == 2) return;
 
-      if (event.ctrlKey || event.metaKey || event.which == 2) return;
+          var elm = jqLite(event.target);
 
-      var elm = jqLite(event.target);
+          // traverse the DOM up to find first A tag
+          while (lowercase(elm[0].nodeName) !== 'a') {
+            // ignore rewriting if no A tag (reached root element, or no parent - removed from document)
+            if (elm[0] === $rootElement[0] || !(elm = elm.parent())[0]) return;
+          }
 
-      // traverse the DOM up to find first A tag
-      while (lowercase(elm[0].nodeName) !== 'a') {
-        // ignore rewriting if no A tag (reached root element, or no parent - removed from document)
-        if (elm[0] === $rootElement[0] || !(elm = elm.parent())[0]) return;
-      }
+          var absHref = elm.prop('href');
 
-      var absHref = elm.prop('href');
+          if (isObject(absHref) && absHref.toString() === '[object SVGAnimatedString]') {
+            // SVGAnimatedString.animVal should be identical to SVGAnimatedString.baseVal, unless during
+            // an animation.
+            absHref = urlResolve(absHref.animVal).href;
+          }
 
-      if (isObject(absHref) && absHref.toString() === '[object SVGAnimatedString]') {
-        // SVGAnimatedString.animVal should be identical to SVGAnimatedString.baseVal, unless during
-        // an animation.
-        absHref = urlResolve(absHref.animVal).href;
-      }
+          var rewrittenUrl = $location.$$rewrite(absHref);
 
-      var rewrittenUrl = $location.$$rewrite(absHref);
+          if (absHref && !elm.attr('target') && rewrittenUrl && !event.isDefaultPrevented()) {
+            event.preventDefault();
+            if (rewrittenUrl != $browser.url()) {
+              // update location manually
+              $location.$$parse(rewrittenUrl);
+              $rootScope.$apply();
+              // hack to work around FF6 bug 684208 when scenario runner clicks on links
+              window.angular['ff-684208-preventDefault'] = true;
+            }
+          }
+        });
 
-      if (absHref && !elm.attr('target') && rewrittenUrl && !event.isDefaultPrevented()) {
-        event.preventDefault();
-        if (rewrittenUrl != $browser.url()) {
-          // update location manually
-          $location.$$parse(rewrittenUrl);
-          $rootScope.$apply();
-          // hack to work around FF6 bug 684208 when scenario runner clicks on links
-          window.angular['ff-684208-preventDefault'] = true;
+
+        // rewrite hashbang url <> html5 url
+        if ($location.absUrl() != initialUrl) {
+          $browser.url($location.absUrl(), true);
         }
-      }
-    });
 
+        // update $location when $browser url changes
+        $browser.onUrlChange(function(newUrl) {
+          if ($location.absUrl() != newUrl) {
+            $rootScope.$evalAsync(function() {
+              var oldUrl = $location.absUrl();
 
-    // rewrite hashbang url <> html5 url
-    if ($location.absUrl() != initialUrl) {
-      $browser.url($location.absUrl(), true);
-    }
-
-    // update $location when $browser url changes
-    $browser.onUrlChange(function(newUrl) {
-      if ($location.absUrl() != newUrl) {
-        $rootScope.$evalAsync(function() {
-          var oldUrl = $location.absUrl();
-
-          $location.$$parse(newUrl);
-          if ($rootScope.$broadcast('$locationChangeStart', newUrl,
-                                    oldUrl).defaultPrevented) {
-            $location.$$parse(oldUrl);
-            $browser.url(oldUrl);
-          } else {
-            afterLocationChange(oldUrl);
+              $location.$$parse(newUrl);
+              if ($rootScope.$broadcast('$locationChangeStart', newUrl,
+                                        oldUrl).defaultPrevented) {
+                $location.$$parse(oldUrl);
+                $browser.url(oldUrl);
+              } else {
+                afterLocationChange(oldUrl);
+              }
+            });
+            if (!$rootScope.$$phase) $rootScope.$digest();
           }
         });
-        if (!$rootScope.$$phase) $rootScope.$digest();
-      }
-    });
 
-    // update browser
-    var changeCounter = 0;
-    $rootScope.$watch(function $locationWatch() {
-      var oldUrl = $browser.url();
-      var currentReplace = $location.$$replace;
+        // update browser
+        var changeCounter = 0;
+        $rootScope.$watch(function $locationWatch() {
+          var oldUrl = $browser.url();
+          var currentReplace = $location.$$replace;
 
-      if (!changeCounter || oldUrl != $location.absUrl()) {
-        changeCounter++;
-        $rootScope.$evalAsync(function() {
-          if ($rootScope.$broadcast('$locationChangeStart', $location.absUrl(), oldUrl).
-              defaultPrevented) {
-            $location.$$parse(oldUrl);
-          } else {
-            $browser.url($location.absUrl(), currentReplace);
-            afterLocationChange(oldUrl);
+          if (!changeCounter || oldUrl != $location.absUrl()) {
+            changeCounter++;
+            $rootScope.$evalAsync(function() {
+              if ($rootScope.$broadcast('$locationChangeStart', $location.absUrl(), oldUrl).
+                  defaultPrevented) {
+                $location.$$parse(oldUrl);
+              } else {
+                $browser.url($location.absUrl(), currentReplace);
+                afterLocationChange(oldUrl);
+              }
+            });
           }
+          $location.$$replace = false;
+
+          return changeCounter;
         });
-      }
-      $location.$$replace = false;
 
-      return changeCounter;
-    });
-
-    return $location;
+        return $location;
     }
 
-    this.afterLocationChange = function(oldUrl) {
-      $rootScope.$broadcast('$locationChangeSuccess', $location.absUrl(), oldUrl);
+    function afterLocationChange(oldUrl) {
+        $rootScope.$broadcast('$locationChangeSuccess', $location.absUrl(), oldUrl);
     }
-}];
+  }];
 }
